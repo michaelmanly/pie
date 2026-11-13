@@ -5,9 +5,9 @@
 #
 #   runpod.sh start | stop | status
 set -euo pipefail
-api="https://rest.runpod.io/v1/pods/${RUNPOD_POD_ID:?}"
-call() { curl -sS --fail-with-body -X "$1" -H "Authorization: Bearer ${RUNPOD_API_KEY:?}" -H "Content-Type: application/json" "$api$2"; }
-status() { call GET "" | jq -r '"\(.desiredStatus) gpu=\(.machine.gpuTypeId // .gpu // "-") uptime=\(.runtime.uptimeInSeconds // 0)s"'; }
+api="https://api.runpod.io/v2/pods/${RUNPOD_POD_ID:?}"
+call() {\n  local method="$1" path="$2"\n  shift 2\n  curl -sS --fail-with-body -X "$method" -H "Authorization: Bearer ${RUNPOD_API_KEY:?}" -H "Content-Type: application/json" "$@" "$api$path"\n}\naction() { call POST /action --data "{\"action\":\"$1\"}"; }
+status() { call GET "" | jq -r '"\(.status) gpu=\(.gpu.id // "-") uptime=\(.runtime.uptime // 0)s"'; }
 case "${1:?start|stop|status}" in
   status) status ;;
   start)
@@ -18,7 +18,7 @@ case "${1:?start|stop|status}" in
     s=$(status); echo "$s"
     case "$s" in RUNNING*) up true; exit 0 ;; esac
     for attempt in $(seq 1 20); do
-      if out=$(call POST /start 2>&1); then
+      if out=$(action start 2>&1); then
         for _ in $(seq 1 30); do
           s=$(status); echo "$s"
           case "$s" in RUNNING*) up true; exit 0 ;; esac
@@ -30,7 +30,7 @@ case "${1:?start|stop|status}" in
       sleep 45
     done
     # a start RunPod accepted late must not keep billing after the run gave up on it
-    call POST /stop >/dev/null 2>&1 || true
+    action stop >/dev/null 2>&1 || true
     echo "::warning::RunPod could not resume pod ${RUNPOD_POD_ID} (no free GPU on its host); the CUDA job is skipped"
     up false ;;
   stop)
@@ -45,6 +45,6 @@ case "${1:?start|stop|status}" in
         fi
       done
     fi
-    call POST /stop >/dev/null; echo "pod ${RUNPOD_POD_ID} stopped" ;;
+    action stop >/dev/null; echo "pod ${RUNPOD_POD_ID} stopped" ;;
   *) echo "usage: $0 start|stop|status" >&2; exit 2 ;;
 esac
